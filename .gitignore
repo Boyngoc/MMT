@@ -1,0 +1,54 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# ---------- Du lieu tho ----------
+# Nang, moi nguoi tu tai ve. KHONG commit vao repo.
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.zip
+*.tar.gz
+*.csv.gz
+
+# ---------- Model / cache da tinh san ----------
+*.pkl
+*.joblib
+*.npy
+*.npz
+*.db
+*.sqlite
+*.sqlite3
+
+# ---------- Notebook ----------
+.ipynb_checkpoints/
+
+# ---------- Ket qua thuc nghiem (tru hinh dung trong bao cao) ----------
+experiments/figures/*
+!experiments/figures/.gitkeep
+!experiments/figures/*.png
+
+# ---------- IDE & he dieu hanh ----------
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---------- File tam cua Office ----------
+~$*
+*~$*.docx
+*~$*.xlsx
+*~$*.pptx
+
+# ---------- Bien moi truong ----------
+.env
+.env.local

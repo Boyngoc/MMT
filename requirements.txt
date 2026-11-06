@@ -1,0 +1,35 @@
+# ===== Xu ly du lieu =====
+numpy
+pandas
+scipy
+
+# ===== Hoc may / KNN =====
+scikit-learn
+
+# ===== Truc quan hoa (do thi cho Chuong 4) =====
+matplotlib
+seaborn
+
+# ===== Server / API =====
+fastapi
+uvicorn[standard]
+
+# ===== Notebook =====
+jupyter
+notebook
+
+# ===== Sinh du lieu mo phong (phuong an du phong neu khong co du lieu that) =====
+Faker
+
+# ------------------------------------------------------------------
+# KHONG dua scikit-surprise vao day.
+# Surprise phai bien dich tu C nen rat hay loi tren Python 3.12+
+# ("Microsoft Visual C++ 14.0 or greater is required").
+#
+# Neu nhom quyet dinh dung Surprise, chon 1 trong 3 cach:
+#   (a) Cai Microsoft C++ Build Tools roi: pip install scikit-surprise
+#   (b) Tao venv bang Python 3.11
+#   (c) Tu cai dat KNN bang numpy + scikit-learn  <-- NEN CHON
+#       De tai la "Tim hieu thuat toan KNN" nen tu implement
+#       se duoc diem cao hon la goi thu vien san.
+# ------------------------------------------------------------------
