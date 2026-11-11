@@ -73,27 +73,38 @@ Thư mục `data/` không được commit — mỗi người tự tải về má
 
 ## Quy ước làm việc với Git
 
-- Nhánh `main` luôn ở trạng thái chạy được. **Không ai commit trực tiếp vào `main`.**
-- Nhánh làm việc: `feat/linh-document`, `feat/hung-newitem`, `fix/hoang-api`…
-- Mọi lần merge vào `main` đều qua Pull Request, **Hoàng review** rồi mới merge.
+Mỗi người có **một nhánh làm việc riêng**, đã tạo sẵn trên GitHub:
+
+| Thành viên | Nhánh làm việc |
+|---|---|
+| Hoàng | `dev/hoang` |
+| Linh | `dev/linh` |
+| Hùng | `dev/hung` |
+
+- Nhánh `main` luôn ở trạng thái chạy được. **Không ai commit trực tiếp vào `main`** — kể cả nhóm trưởng.
+- Làm xong trên nhánh của mình thì mở **Pull Request** vào `main`, **Hoàng review** rồi mới merge.
+- Việc lớn tách riêng được thì cắt nhánh con từ nhánh mình: `feat/linh-tfidf`, `fix/hoang-api`…
 - Tiền tố commit message: `feat:` · `fix:` · `docs:` · `exp:` · `chore:`
 
 ```powershell
-# bắt đầu một việc mới
-git switch -c feat/linh-document
+# LAN DAU - lay nhanh cua minh ve may
+git clone https://github.com/Boyngoc/MMT.git
+cd MMT
+git switch dev/linh          # Hoang: dev/hoang · Hung: dev/hung
 
-# làm xong
+# LAM XONG MOT VIEC
 git add src/rec_document.py
 git commit -m "feat: them module goi y tai lieu bang TF-IDF + cosine"
-git push -u origin feat/linh-document
-# rồi vào GitHub bấm "Compare & pull request", gán Hoàng làm reviewer
+git push
 
-# đầu mỗi buổi làm việc, kéo code mới nhất về nhánh của mình
+# DAU MOI BUOI LAM VIEC - keo code moi nhat tu main ve nhanh minh
 git switch main
 git pull
-git switch feat/linh-document
+git switch dev/linh
 git merge main
 ```
+
+Khi muốn đưa code lên `main`: vào GitHub, chọn nhánh của mình → **Contribute → Open pull request** → gán Hoàng làm reviewer. Merge xong thì cả nhóm `git pull` trên `main` rồi `git merge main` vào nhánh mình.
 
 > **Notebook là nguồn conflict số một** vì lưu cả output. Mỗi người dùng một file notebook riêng. Muốn chắc hơn thì cài: `pip install nbstripout` rồi `nbstripout --install`.
 
