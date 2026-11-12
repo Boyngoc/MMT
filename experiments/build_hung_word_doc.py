@@ -6,12 +6,16 @@ Follows all formatting rules in Section 4 of KeHoach_PhanCong_Nhom_KNN.docx:
 - Alignment: Justify for body paragraphs
 - First-line indent: 1.0 cm for body prose
 - Bold headings with consistent formatting per level; major sections centered on a new page
+- Native Microsoft Word Equations (OMML <m:oMath>) for all numbered equations
+  and inline math expressions (zero raw LaTeX/underscores).
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+from lxml import etree
 from docx import Document
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -24,9 +28,155 @@ SUMMARY_PATH = MMT_ROOT / "experiments" / "dataset_summary.json"
 OUT_DOCX = MMT_ROOT / "docs" / "BaoCao_Hung_Tuan1_3.docx"
 
 FONT_NAME = "Times New Roman"
+MATH_FONT = "Cambria Math"
 BODY_SIZE = Pt(13)
 TABLE_SIZE = Pt(11.5)
 BLACK = RGBColor(0, 0, 0)
+
+M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def _m(tag: str, *children) -> etree._Element:
+    el = etree.Element(f"{{{M_NS}}}{tag}")
+    for child in children:
+        if isinstance(child, list):
+            for c in child:
+                el.append(c)
+        elif child is not None:
+            el.append(child)
+    return el
+
+
+def _w(tag: str, attrib: dict | None = None, *children) -> etree._Element:
+    el = etree.Element(f"{{{W_NS}}}{tag}", attrib or {})
+    for child in children:
+        el.append(child)
+    return el
+
+
+def mr(text: str, plain: bool = False, sz_half_pt: int = 26) -> etree._Element:
+    """Create an OMML math run <m:r>."""
+    r = etree.Element(f"{{{M_NS}}}r")
+    if plain:
+        r.append(_m("rPr", _m("sty", *[], **{}) if False else etree.Element(f"{{{M_NS}}}sty", {f"{{{M_NS}}}val": "p"})))
+    w_rpr = _w(
+        "rPr",
+        None,
+        _w("rFonts", {f"{{{W_NS}}}ascii": MATH_FONT, f"{{{W_NS}}}hAnsi": MATH_FONT}),
+        _w("sz", {f"{{{W_NS}}}val": str(sz_half_pt)}),
+        _w("szCs", {f"{{{W_NS}}}val": str(sz_half_pt)}),
+    )
+    r.append(w_rpr)
+    t = etree.Element(f"{{{M_NS}}}t")
+    if text.startswith(" ") or text.endswith(" "):
+        t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    t.text = text
+    r.append(t)
+    return r
+
+
+def _wrap(items) -> list[etree._Element]:
+    if isinstance(items, list):
+        return items
+    return [items]
+
+
+def m_sub(base, sub) -> etree._Element:
+    return _m("sSub", _m("e", *_wrap(base)), _m("sub", *_wrap(sub)))
+
+
+def m_sup(base, sup) -> etree._Element:
+    return _m("sSup", _m("e", *_wrap(base)), _m("sup", *_wrap(sup)))
+
+
+def m_subsup(base, sub, sup) -> etree._Element:
+    return _m("sSubSup", _m("e", *_wrap(base)), _m("sub", *_wrap(sub)), _m("sup", *_wrap(sup)))
+
+
+def m_frac(num, den) -> etree._Element:
+    return _m("f", _m("num", *_wrap(num)), _m("den", *_wrap(den)))
+
+
+def m_sqrt(expr) -> etree._Element:
+    rad_pr = _m("radPr", etree.Element(f"{{{M_NS}}}degHide", {f"{{{M_NS}}}val": "1"}))
+    return _m("rad", rad_pr, _m("deg"), _m("e", *_wrap(expr)))
+
+
+def m_sum(sub, expr, sup=None) -> etree._Element:
+    nary_pr = _m(
+        "naryPr",
+        etree.Element(f"{{{M_NS}}}chr", {f"{{{M_NS}}}val": "∑"}),
+        etree.Element(f"{{{M_NS}}}limLoc", {f"{{{M_NS}}}val": "undOvr"}),
+    )
+    if sup is None:
+        nary_pr.append(etree.Element(f"{{{M_NS}}}supHide", {f"{{{M_NS}}}val": "1"}))
+    sup_el = _m("sup") if sup is None else _m("sup", *_wrap(sup))
+    return _m("nary", nary_pr, _m("sub", *_wrap(sub)), sup_el, _m("e", *_wrap(expr)))
+
+
+def m_acc(base, char: str) -> etree._Element:
+    acc_pr = _m("accPr", etree.Element(f"{{{M_NS}}}chr", {f"{{{M_NS}}}val": char}))
+    return _m("acc", acc_pr, _m("e", *_wrap(base)))
+
+
+def m_hat(base) -> etree._Element:
+    return m_acc(base, "\u0302")
+
+
+def m_bar(base) -> etree._Element:
+    return m_acc(base, "\u0304")
+
+
+def m_paren(expr, beg: str = "(", end: str = ")") -> etree._Element:
+    d_pr = _m(
+        "dPr",
+        etree.Element(f"{{{M_NS}}}begChr", {f"{{{M_NS}}}val": beg}),
+        etree.Element(f"{{{M_NS}}}endChr", {f"{{{M_NS}}}val": end}),
+    )
+    return _m("d", d_pr, _m("e", *_wrap(expr)))
+
+
+def m_omath(*nodes) -> etree._Element:
+    return _m("oMath", *nodes)
+
+
+# --- Inline OMML helper tokens for prose ---
+INLINE_MATH_TOKENS: dict[str, callable] = {
+    "rhat_ui": lambda: m_sub(m_hat(mr("r")), mr("ui")),
+    "rhat_U1M5": lambda: [m_hat(mr("r")), m_paren([m_sub(mr("U"), mr("1")), mr(", "), m_sub(mr("M"), mr("5"))])],
+    "r_U1M5": lambda: [mr("r"), m_paren([m_sub(mr("U"), mr("1")), mr(", "), m_sub(mr("M"), mr("5"))])],
+    "rbar_u": lambda: m_sub(m_bar(mr("r")), mr("u")),
+    "rbar_v": lambda: m_sub(m_bar(mr("r")), mr("v")),
+    "rbar_i": lambda: m_sub(m_bar(mr("r")), mr("i")),
+    "rbar_j": lambda: m_sub(m_bar(mr("r")), mr("j")),
+    "r_ui": lambda: m_sub(mr("r"), mr("ui")),
+    "r_uj": lambda: m_sub(mr("r"), mr("uj")),
+    "r_vi": lambda: m_sub(mr("r"), mr("vi")),
+    "r_vj": lambda: m_sub(mr("r"), mr("vj")),
+    "I_uv": lambda: m_sub(mr("I"), mr("uv")),
+    "I_u": lambda: m_sub(mr("I"), mr("u")),
+    "I_v": lambda: m_sub(mr("I"), mr("v")),
+    "U_ij": lambda: m_sub(mr("U"), mr("ij")),
+    "U_i": lambda: m_sub(mr("U"), mr("i")),
+    "U_j": lambda: m_sub(mr("U"), mr("j")),
+    "N_k_ui": lambda: [m_sub(mr("N"), mr("k")), m_paren(mr("u; i"))],
+    "N_k_iu": lambda: [m_sub(mr("N"), mr("k")), m_paren(mr("i; u"))],
+    "sim_Pearson_uv": lambda: [m_sub(mr("sim", plain=True), mr("Pearson", plain=True)), m_paren(mr("u, v"))],
+    "sim_Pearson_U1U2": lambda: [m_sub(mr("sim", plain=True), mr("Pearson", plain=True)), m_paren([m_sub(mr("U"), mr("1")), mr(", "), m_sub(mr("U"), mr("2"))])],
+    "sim_Pearson_U1U4": lambda: [m_sub(mr("sim", plain=True), mr("Pearson", plain=True)), m_paren([m_sub(mr("U"), mr("1")), mr(", "), m_sub(mr("U"), mr("4"))])],
+    "sim_AdjCos_ij": lambda: [m_sub(mr("sim", plain=True), mr("AdjCos", plain=True)), m_paren(mr("i, j"))],
+    "sim_uv": lambda: [mr("sim", plain=True), m_paren(mr("u, v"))],
+    "sim_ij": lambda: [mr("sim", plain=True), m_paren(mr("i, j"))],
+    "R_K_u": lambda: [m_sub(mr("R"), mr("K")), m_paren(mr("u"))],
+    "Rel_u": lambda: [mr("Rel", plain=True), m_paren(mr("u"))],
+    "rel_p": lambda: m_sub(mr("rel", plain=True), mr("p")),
+    "IDCG_K": lambda: [m_sub(mr("IDCG", plain=True), mr("K"))],
+    "NDCG_K": lambda: [m_sub(mr("NDCG", plain=True), mr("K"))],
+    "O_U2I": lambda: [mr("O", plain=True), m_paren([m_sup(m_paren(mr("U"), "|", "|"), mr("2")), mr("·"), m_paren(mr("I"), "|", "|")])],
+    "O_I2U": lambda: [mr("O", plain=True), m_paren([m_sup(m_paren(mr("I"), "|", "|"), mr("2")), mr("·"), m_paren(mr("U"), "|", "|")])],
+    "U_gt_I": lambda: [m_paren(mr("U"), "|", "|"), mr(" ≫ "), m_paren(mr("I"), "|", "|")],
+}
 
 
 def set_run_font(run, size=BODY_SIZE, bold=False, italic=False, color=BLACK) -> None:
@@ -44,6 +194,32 @@ def set_run_font(run, size=BODY_SIZE, bold=False, italic=False, color=BLACK) -> 
     rFonts.set(qn("w:hAnsi"), FONT_NAME)
     rFonts.set(qn("w:cs"), FONT_NAME)
     rFonts.set(qn("w:eastAsia"), FONT_NAME)
+
+
+def append_rich_runs(paragraph, text: str, size=BODY_SIZE, bold: bool = False, italic: bool = False) -> None:
+    """Parse lightweight inline tokens `{{token}}`, `_{sub}`, `^{sup}` into clean Word runs/OMML."""
+    pattern = re.compile(r"\{\{([A-Za-z0-9_]+)\}\}|_\{([^}]+)\}|\^\{([^}]+)\}")
+    pos = 0
+    for m in pattern.finditer(text):
+        if m.start() > pos:
+            r = paragraph.add_run(text[pos : m.start()])
+            set_run_font(r, size=size, bold=bold, italic=italic)
+        if m.group(1) is not None:
+            key = m.group(1)
+            nodes = INLINE_MATH_TOKENS[key]()
+            paragraph._p.append(m_omath(*_wrap(nodes)))
+        elif m.group(2) is not None:
+            r = paragraph.add_run(m.group(2))
+            set_run_font(r, size=size, bold=bold, italic=italic)
+            r.font.subscript = True
+        elif m.group(3) is not None:
+            r = paragraph.add_run(m.group(3))
+            set_run_font(r, size=size, bold=bold, italic=italic)
+            r.font.superscript = True
+        pos = m.end()
+    if pos < len(text):
+        r = paragraph.add_run(text[pos:])
+        set_run_font(r, size=size, bold=bold, italic=italic)
 
 
 def configure_document() -> Document:
@@ -115,8 +291,7 @@ def add_body(doc: Document, text: str, bold_prefix: str | None = None, indent: b
     if bold_prefix:
         rb = p.add_run(bold_prefix)
         set_run_font(rb, size=BODY_SIZE, bold=True)
-    r = p.add_run(text)
-    set_run_font(r, size=BODY_SIZE, bold=False)
+    append_rich_runs(p, text, size=BODY_SIZE)
 
 
 def add_bullet(doc: Document, bold_prefix: str, text: str) -> None:
@@ -130,21 +305,53 @@ def add_bullet(doc: Document, bold_prefix: str, text: str) -> None:
     pf.line_spacing = 1.35
     r0 = p.add_run("– " + bold_prefix)
     set_run_font(r0, size=BODY_SIZE, bold=True)
-    r1 = p.add_run(text)
-    set_run_font(r1, size=BODY_SIZE, bold=False)
+    append_rich_runs(p, text, size=BODY_SIZE)
 
 
-def add_formula(doc: Document, formula: str, label: str = "") -> None:
-    p = doc.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    pf = p.paragraph_format
-    pf.first_line_indent = Cm(0)
-    pf.space_before = Pt(4)
-    pf.space_after = Pt(6)
-    pf.line_spacing = 1.25
-    text = f"{formula}    {label}".strip()
-    r = p.add_run(text)
-    set_run_font(r, size=BODY_SIZE, italic=True)
+def add_omml_equation(doc: Document, omath_el: etree._Element, label: str) -> None:
+    """Render a native Word equation centered in a borderless layout table with right-aligned label."""
+    tbl = doc.add_table(rows=1, cols=3)
+    tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
+    tbl.autofit = False
+
+    # Remove all borders cleanly
+    tblPr = tbl._tbl.tblPr
+    borders = parse_xml(
+        f'<w:tblBorders {nsdecls("w")}>'
+        '<w:top w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '<w:bottom w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '<w:left w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '<w:right w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '<w:insideH w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        '<w:insideV w:val="none" w:sz="0" w:space="0" w:color="auto"/>'
+        "</w:tblBorders>"
+    )
+    tblPr.append(borders)
+
+    widths = [Cm(1.8), Cm(12.9), Cm(1.8)]
+    row = tbl.rows[0]
+    for i, w in enumerate(widths):
+        row.cells[i].width = w
+        row.cells[i].vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+
+    p_eq = row.cells[1].paragraphs[0]
+    p_eq.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p_eq.paragraph_format.first_line_indent = Cm(0)
+    p_eq.paragraph_format.space_before = Pt(4)
+    p_eq.paragraph_format.space_after = Pt(4)
+    p_eq._p.append(omath_el)
+
+    p_lbl = row.cells[2].paragraphs[0]
+    p_lbl.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_lbl.paragraph_format.first_line_indent = Cm(0)
+    p_lbl.paragraph_format.space_before = Pt(4)
+    p_lbl.paragraph_format.space_after = Pt(4)
+    rl = p_lbl.add_run(label)
+    set_run_font(rl, size=BODY_SIZE)
+
+    spacer = doc.add_paragraph()
+    spacer.paragraph_format.space_before = Pt(0)
+    spacer.paragraph_format.space_after = Pt(4)
 
 
 def add_code_block(doc: Document, lines: list[str]) -> None:
@@ -172,14 +379,12 @@ def add_table(doc: Document, caption: str, headers: list[str], rows: list[list[s
     cap.paragraph_format.space_before = Pt(6)
     cap.paragraph_format.space_after = Pt(4)
     cap.paragraph_format.keep_with_next = True
-    rc = cap.add_run(caption)
-    set_run_font(rc, size=BODY_SIZE, bold=True, italic=True)
+    append_rich_runs(cap, caption, size=BODY_SIZE, bold=True, italic=True)
 
     tbl = doc.add_table(rows=1 + len(rows), cols=len(headers))
     tbl.alignment = WD_TABLE_ALIGNMENT.CENTER
     tbl.autofit = False
 
-    # Add clean thin borders
     tblPr = tbl._tbl.tblPr
     borders = parse_xml(
         f'<w:tblBorders {nsdecls("w")}>'
@@ -209,8 +414,7 @@ def add_table(doc: Document, caption: str, headers: list[str], rows: list[list[s
             p.paragraph_format.space_before = Pt(2)
             p.paragraph_format.space_after = Pt(2)
             p.paragraph_format.line_spacing = 1.2
-            run = p.add_run(str(val))
-            set_run_font(run, size=TABLE_SIZE, bold=(r_idx == 0))
+            append_rich_runs(p, str(val), size=TABLE_SIZE, bold=(r_idx == 0))
 
     spacer = doc.add_paragraph()
     spacer.paragraph_format.space_before = Pt(0)
@@ -232,7 +436,11 @@ def build_doc() -> None:
     p_top.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_top.paragraph_format.first_line_indent = Cm(0)
     p_top.paragraph_format.space_after = Pt(6)
-    r_top = p_top.add_run("MÔN HỌC: MẠNG MÁY TÍNH (MMT)\nĐỒ ÁN NHÓM: TÌM HIỂU THUẬT TOÁN KNN VÀ ỨNG DỤNG\nGỢI Ý XEM PHIM / HÀNG MỚI / TÀI LIỆU DOWNLOAD")
+    r_top = p_top.add_run(
+        "MÔN HỌC: MẠNG MÁY TÍNH (MMT)\n"
+        "ĐỒ ÁN NHÓM: TÌM HIỂU THUẬT TOÁN KNN VÀ ỨNG DỤNG\n"
+        "GỢI Ý XEM PHIM / HÀNG MỚI / TÀI LIỆU DOWNLOAD"
+    )
     set_run_font(r_top, size=Pt(13.5), bold=True)
 
     add_major_title(doc, "BÁO CÁO PHẦN ĐẢM NHẬN CỦA THÀNH VIÊN HÙNG\n(HOÀN THÀNH TIẾN ĐỘ TUẦN 1 – TUẦN 3)")
@@ -266,14 +474,18 @@ def build_doc() -> None:
 
     add_body(
         doc,
-        "Tài liệu này được trình bày tuân thủ đúng quy chuẩn hình thức của giảng viên (khổ giấy A4, phông chữ Times New Roman cỡ 13, căn đều hai bên, thụt đầu dòng 1 cm, tiêu đề in đậm thống nhất theo cấp) nhằm giúp nhóm trưởng (Hoàng) dễ dàng ghép trực tiếp các mục 1.3.1, 1.3.3, 1.3.5 và 1.3.6 vào Chương 1 của quyển báo cáo cuối kỳ.",
+        "Tài liệu này được trình bày tuân thủ đúng quy chuẩn hình thức của giảng viên (khổ giấy A4, phông chữ Times New Roman cỡ 13, căn đều hai bên, thụt đầu dòng 1 cm, tiêu đề in đậm thống nhất theo cấp, công thức toán học chuẩn Equation của Microsoft Word) nhằm giúp nhóm trưởng (Hoàng) dễ dàng ghép trực tiếp các mục 1.3.1, 1.3.3, 1.3.5 và 1.3.6 vào Chương 1 của quyển báo cáo cuối kỳ.",
         bold_prefix="Ghi chú ghép quyển: ",
     )
 
     # =========================================================================
     # CHƯƠNG 1 (CÁC MỤC HÙNG PHỤ TRÁCH)
     # =========================================================================
-    add_major_title(doc, "CHƯƠNG 1. TỔNG QUAN VỀ TRÍ TUỆ NHÂN TẠO VÀ CÁC THUẬT TOÁN\n(CÁC MỤC 1.3.1, 1.3.3, 1.3.5, 1.3.6 DO HÙNG BIÊN SOẠN)", page_break_before=True)
+    add_major_title(
+        doc,
+        "CHƯƠNG 1. TỔNG QUAN VỀ TRÍ TUỆ NHÂN TẠO VÀ CÁC THUẬT TOÁN\n(CÁC MỤC 1.3.1, 1.3.3, 1.3.5, 1.3.6 DO HÙNG BIÊN SOẠN)",
+        page_break_before=True,
+    )
 
     # --- 1.3.1 ---
     add_heading_h2(doc, "1.3.1. Tổng quan về hệ gợi ý (Recommender Systems)")
@@ -288,9 +500,20 @@ def build_doc() -> None:
     )
     add_body(
         doc,
-        "Xét trên phương diện toán học, bài toán cốt lõi của hệ gợi ý được hình thức hóa thông qua tập người dùng U = {u₁, u₂, ..., uₘ} và tập đối tượng I = {i₁, i₂, ..., iₙ}. Gọi R là ma trận tương tác kích thước |U| × |I|, trong đó phần tử rᵤᵢ biểu diễn mức độ quan tâm đã quan sát của người dùng u đối với đối tượng i (rᵤᵢ = ∅ nếu chưa có tương tác). Mục tiêu của hệ thống là xây dựng hàm dự đoán tiện ích f: U × I → ℝ sao cho với mỗi người dùng u, hệ thống lựa chọn tập K đối tượng chưa từng tương tác có giá trị dự đoán cao nhất [1]:",
+        "Xét trên phương diện toán học, bài toán cốt lõi của hệ gợi ý được hình thức hóa thông qua tập người dùng U = {u_{1}, u_{2}, …, u_{m}} và tập đối tượng I = {i_{1}, i_{2}, …, i_{n}}. Gọi R là ma trận tương tác kích thước |U| × |I|, trong đó phần tử {{r_ui}} biểu diễn mức độ quan tâm đã quan sát của người dùng u đối với đối tượng i ({{r_ui}} = ∅ nếu chưa có tương tác). Mục tiêu của hệ thống là xây dựng hàm dự đoán tiện ích f : U × I → ℝ sao cho với mỗi người dùng u, hệ thống lựa chọn tập K đối tượng chưa từng tương tác có giá trị dự đoán cao nhất [1]:",
     )
-    add_formula(doc, "I*_K(u) = argmax_{i ∈ I \\ I_u}^{(K)}  f(u, i)", "(1.1)")
+
+    # Công thức (1.1): I*_K(u) = argmax^{(K)}_{i ∈ I \ I_u} f(u, i)
+    eq_1_1 = m_omath(
+        m_subsup(mr("I"), mr("K"), mr("*")),
+        m_paren(mr("u")),
+        mr(" = "),
+        m_subsup(mr("argmax", plain=True), [mr("i ∈ I \\ "), m_sub(mr("I"), mr("u"))], m_paren(mr("K"))),
+        mr(" "),
+        mr("f"),
+        m_paren(mr("u, i")),
+    )
+    add_omml_equation(doc, eq_1_1, "(1.1)")
 
     add_body(
         doc,
@@ -306,7 +529,6 @@ def build_doc() -> None:
         "Phản hồi ngầm (Implicit Feedback): ",
         "Hệ thống tự động ghi nhận hành vi tự nhiên của người dùng như lượt xem (view), lưu trang (bookmark), thêm vào giỏ hàng (cart), tải tài liệu (download) hoặc mua hàng (purchase) [5]. Dữ liệu ngầm có khối lượng rất lớn nhưng thiếu vắng phản hồi tiêu cực rõ ràng (một tài liệu chưa được tải có thể do người dùng chưa biết tới chứ không hẳn vì không thích) và thường chứa nhiều nhiễu, đòi hỏi cơ chế gán trọng số tin cậy phù hợp.",
     )
-
     add_body(
         doc,
         "Dựa trên nguồn tri thức khai thác để tính toán độ phù hợp, các kỹ thuật xây dựng hệ gợi ý được phân thành ba hướng tiếp cận chính: (i) Lọc theo nội dung (Content-based Filtering) dựa trên thuộc tính mô tả của đối tượng và hồ sơ sở thích người dùng; (ii) Lọc cộng tác (Collaborative Filtering – CF) khai thác trí tuệ đám đông từ ma trận tương tác quá khứ mà không cần hiểu nội dung đối tượng; và (iii) Hệ gợi ý lai (Hybrid Recommender System) kết hợp hai hướng trên nhằm tận dụng ưu điểm và bù đắp nhược điểm cố hữu như khởi đầu nguội hay thưa thớt dữ liệu [6]. Thuật toán K-Nearest Neighbors (KNN) đóng vai trò nền tảng trong cả ba hướng tiếp cận này nhờ tính trực quan, dễ giải thích và không đòi hỏi quá trình huấn luyện tham số phức tạp.",
@@ -323,25 +545,73 @@ def build_doc() -> None:
     add_heading_h3(doc, "a) Lọc cộng tác dựa trên người dùng (User-based KNN)")
     add_body(
         doc,
-        "Ý tưởng của User-based KNN là để dự đoán điểm đánh giá của người dùng mục tiêu u cho đối tượng i chưa xem, hệ thống tìm tập N_k(u; i) gồm k người dùng láng giềng có độ tương đồng cao nhất với u trong số những người đã từng đánh giá đối tượng i [7]. Độ tương đồng sim(u, v) giữa hai người dùng u và v thường được đo bằng hệ số tương quan Pearson (Pearson Correlation) hoặc Cosine trên tập đối tượng cùng đánh giá I_{uv} = I_u ∩ I_v:",
+        "Ý tưởng của User-based KNN là để dự đoán điểm đánh giá của người dùng mục tiêu u cho đối tượng i chưa xem, hệ thống tìm tập {{N_k_ui}} gồm k người dùng láng giềng có độ tương đồng cao nhất với u trong số những người đã từng đánh giá đối tượng i [7]. Độ tương đồng {{sim_uv}} giữa hai người dùng u và v thường được đo bằng hệ số tương quan Pearson (Pearson Correlation) hoặc Cosine trên tập đối tượng cùng đánh giá {{I_uv}} = {{I_u}} ∩ {{I_v}}:",
     )
-    add_formula(
-        doc,
-        "sim_Pearson(u, v) = [ Σ_{j ∈ I_{uv}} (r_{uj} − r̄_u)(r_{vj} − r̄_v) ] / [ √(Σ_{j ∈ I_{uv}} (r_{uj} − r̄_u)²) · √(Σ_{j ∈ I_{uv}} (r_{vj} − r̄_v)²) ]",
-        "(1.2)",
+
+    # Công thức (1.2): Pearson similarity
+    eq_1_2 = m_omath(
+        m_sub(mr("sim", plain=True), mr("Pearson", plain=True)),
+        m_paren(mr("u, v")),
+        mr(" = "),
+        m_frac(
+            m_sum(
+                [mr("j ∈ "), m_sub(mr("I"), mr("uv"))],
+                [
+                    m_paren([m_sub(mr("r"), mr("uj")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]),
+                    m_paren([m_sub(mr("r"), mr("vj")), mr(" − "), m_sub(m_bar(mr("r")), mr("v"))]),
+                ],
+            ),
+            [
+                m_sqrt(
+                    m_sum(
+                        [mr("j ∈ "), m_sub(mr("I"), mr("uv"))],
+                        m_sup(m_paren([m_sub(mr("r"), mr("uj")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]), mr("2")),
+                    )
+                ),
+                mr(" · "),
+                m_sqrt(
+                    m_sum(
+                        [mr("j ∈ "), m_sub(mr("I"), mr("uv"))],
+                        m_sup(m_paren([m_sub(mr("r"), mr("vj")), mr(" − "), m_sub(m_bar(mr("r")), mr("v"))]), mr("2")),
+                    )
+                ),
+            ],
+        ),
     )
+    add_omml_equation(doc, eq_1_2, "(1.2)")
+
     add_body(
         doc,
-        "Trong thực tế, mỗi người dùng có thang chấm điểm chủ quan khác nhau: có người dùng khó tính chỉ chấm trung bình 2.5 sao, trong khi người dùng dễ tính thường chấm quanh mức 4.2 sao. Nếu lấy trung bình có trọng số trực tiếp từ điểm thô r_{vj}, kết quả dự đoán sẽ bị lệch nghiêm trọng. Do đó, công thức dự đoán chuẩn trong User-based KNN áp dụng kỹ thuật trừ trung bình (mean-centering) nhằm chuẩn hóa độ lệch sở thích của từng người dùng [2]:",
+        "Trong thực tế, mỗi người dùng có thang chấm điểm chủ quan khác nhau: có người dùng khó tính chỉ chấm trung bình 2.5 sao, trong khi người dùng dễ tính thường chấm quanh mức 4.2 sao. Nếu lấy trung bình có trọng số trực tiếp từ điểm thô {{r_vj}}, kết quả dự đoán sẽ bị lệch nghiêm trọng. Do đó, công thức dự đoán chuẩn trong User-based KNN áp dụng kỹ thuật trừ trung bình (mean-centering) nhằm chuẩn hóa độ lệch sở thích của từng người dùng [2]:",
     )
-    add_formula(
-        doc,
-        "r̂_{ui} = r̄_u + [ Σ_{v ∈ N_k(u; i)} sim(u, v) · (r_{vi} − r̄_v) ] / [ Σ_{v ∈ N_k(u; i)} |sim(u, v)| ]",
-        "(1.3)",
+
+    # Công thức (1.3): User-based rating prediction with mean-centering
+    eq_1_3 = m_omath(
+        m_sub(m_hat(mr("r")), mr("ui")),
+        mr(" = "),
+        m_sub(m_bar(mr("r")), mr("u")),
+        mr(" + "),
+        m_frac(
+            m_sum(
+                [mr("v ∈ "), m_sub(mr("N"), mr("k")), m_paren(mr("u; i"))],
+                [
+                    mr("sim", plain=True),
+                    m_paren(mr("u, v")),
+                    mr(" · "),
+                    m_paren([m_sub(mr("r"), mr("vi")), mr(" − "), m_sub(m_bar(mr("r")), mr("v"))]),
+                ],
+            ),
+            m_sum(
+                [mr("v ∈ "), m_sub(mr("N"), mr("k")), m_paren(mr("u; i"))],
+                m_paren([mr("sim", plain=True), m_paren(mr("u, v"))], "|", "|"),
+            ),
+        ),
     )
+    add_omml_equation(doc, eq_1_3, "(1.3)")
+
     add_body(
         doc,
-        "trong đó r̄_u và r̄_v lần lượt là điểm đánh giá trung bình của người dùng u và láng giềng v trên toàn bộ các đối tượng họ đã chấm. Nhờ trừ đi r̄_v, phần tử (r_{vi} − r̄_v) chỉ phản ánh việc v đánh giá đối tượng i cao hơn hay thấp hơn mức bình thường của chính v.",
+        "trong đó {{rbar_u}} và {{rbar_v}} lần lượt là điểm đánh giá trung bình của người dùng u và láng giềng v trên toàn bộ các đối tượng họ đã chấm. Nhờ trừ đi {{rbar_v}}, phần tử ({{r_vi}} − {{rbar_v}}) chỉ phản ánh việc v đánh giá đối tượng i cao hơn hay thấp hơn mức bình thường của chính v.",
     )
 
     add_heading_h3(doc, "b) Lọc cộng tác dựa trên đối tượng (Item-based KNN)")
@@ -351,22 +621,70 @@ def build_doc() -> None:
     )
     add_body(
         doc,
-        "Trong Item-based KNN, độ tương đồng giữa hai đối tượng i và j được tính trên tập người dùng cùng đánh giá U_{ij} = U_i ∩ U_j. Để loại bỏ thiên lệch chấm điểm cá nhân của từng người dùng khi tính tương đồng giữa các sản phẩm, độ đo Adjusted Cosine được ưu tiên sử dụng thay cho Cosine thuần túy [8]:",
+        "Trong Item-based KNN, độ tương đồng giữa hai đối tượng i và j được tính trên tập người dùng cùng đánh giá {{U_ij}} = {{U_i}} ∩ {{U_j}}. Để loại bỏ thiên lệch chấm điểm cá nhân của từng người dùng khi tính tương đồng giữa các sản phẩm, độ đo Adjusted Cosine được ưu tiên sử dụng thay cho Cosine thuần túy [8]:",
     )
-    add_formula(
-        doc,
-        "sim_AdjCos(i, j) = [ Σ_{u ∈ U_{ij}} (r_{ui} − r̄_u)(r_{uj} − r̄_u) ] / [ √(Σ_{u ∈ U_i} (r_{ui} − r̄_u)²) · √(Σ_{u ∈ U_j} (r_{uj} − r̄_u)²) ]",
-        "(1.4)",
+
+    # Công thức (1.4): Adjusted Cosine similarity
+    eq_1_4 = m_omath(
+        m_sub(mr("sim", plain=True), mr("AdjCos", plain=True)),
+        m_paren(mr("i, j")),
+        mr(" = "),
+        m_frac(
+            m_sum(
+                [mr("u ∈ "), m_sub(mr("U"), mr("ij"))],
+                [
+                    m_paren([m_sub(mr("r"), mr("ui")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]),
+                    m_paren([m_sub(mr("r"), mr("uj")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]),
+                ],
+            ),
+            [
+                m_sqrt(
+                    m_sum(
+                        [mr("u ∈ "), m_sub(mr("U"), mr("i"))],
+                        m_sup(m_paren([m_sub(mr("r"), mr("ui")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]), mr("2")),
+                    )
+                ),
+                mr(" · "),
+                m_sqrt(
+                    m_sum(
+                        [mr("u ∈ "), m_sub(mr("U"), mr("j"))],
+                        m_sup(m_paren([m_sub(mr("r"), mr("uj")), mr(" − "), m_sub(m_bar(mr("r")), mr("u"))]), mr("2")),
+                    )
+                ),
+            ],
+        ),
     )
+    add_omml_equation(doc, eq_1_4, "(1.4)")
+
     add_body(
         doc,
-        "Từ tập k đối tượng tương đồng nhất với i mà người dùng u đã đánh giá, ký hiệu là N_k(i; u), điểm dự đoán r̂_{ui} được tính theo công thức bình quân gia quyền có mean-centering theo đối tượng (hoặc theo người dùng):",
+        "Từ tập k đối tượng tương đồng nhất với i mà người dùng u đã đánh giá, ký hiệu là {{N_k_iu}}, điểm dự đoán {{rhat_ui}} được tính theo công thức bình quân gia quyền có mean-centering theo đối tượng:",
     )
-    add_formula(
-        doc,
-        "r̂_{ui} = r̄_i + [ Σ_{j ∈ N_k(i; u)} sim(i, j) · (r_{uj} − r̄_j) ] / [ Σ_{j ∈ N_k(i; u)} |sim(i, j)| ]",
-        "(1.5)",
+
+    # Công thức (1.5): Item-based rating prediction
+    eq_1_5 = m_omath(
+        m_sub(m_hat(mr("r")), mr("ui")),
+        mr(" = "),
+        m_sub(m_bar(mr("r")), mr("i")),
+        mr(" + "),
+        m_frac(
+            m_sum(
+                [mr("j ∈ "), m_sub(mr("N"), mr("k")), m_paren(mr("i; u"))],
+                [
+                    mr("sim", plain=True),
+                    m_paren(mr("i, j")),
+                    mr(" · "),
+                    m_paren([m_sub(mr("r"), mr("uj")), mr(" − "), m_sub(m_bar(mr("r")), mr("j"))]),
+                ],
+            ),
+            m_sum(
+                [mr("j ∈ "), m_sub(mr("N"), mr("k")), m_paren(mr("i; u"))],
+                m_paren([mr("sim", plain=True), m_paren(mr("i, j"))], "|", "|"),
+            ),
+        ),
     )
+    add_omml_equation(doc, eq_1_5, "(1.5)")
+
     add_body(
         doc,
         "Ưu điểm vượt trội của Item-based KNN trong kiến trúc hệ thống thực tế là ma trận tương đồng giữa các đối tượng kích thước |I| × |I| có tính ổn định cao theo thời gian (vì đặc tính nội tại của một bộ phim hay sản phẩm ít biến động hơn tâm lý người dùng). Nhờ vậy, hệ thống có thể tính trước (precompute) và lưu đệm (cache) ma trận tương đồng ngoại tuyến theo chu kỳ, giúp thời gian phản hồi API trực tuyến giảm xuống chỉ còn vài mili-giây.",
@@ -378,7 +696,7 @@ def build_doc() -> None:
         ["Tiêu chí so sánh", "User-based KNN", "Item-based KNN"],
         [
             ["Đối tượng láng giềng", "Tìm k người dùng tương đồng với u", "Tìm k đối tượng tương đồng với i"],
-            ["Độ phức tạp tính tương đồng", "O(|U|² · |I|) — rất lớn khi |U| ≫ |I|", "O(|I|² · |U|) — tối ưu hơn khi |U| ≫ |I|"],
+            ["Độ phức tạp tính tương đồng", "{{O_U2I}} — rất lớn khi {{U_gt_I}}", "{{O_I2U}} — tối ưu hơn khi {{U_gt_I}}"],
             ["Tính ổn định & khả năng cache", "Thấp hơn do hồ sơ người dùng thay đổi nhanh", "Cao; dễ tính trước và cache ma trận item-item"],
             ["Độ nhạy với thưa dữ liệu", "Dễ gặp trường hợp ít cặp user giao nhau", "Ổn định hơn khi số đánh giá trung bình mỗi item đủ lớn"],
             ["Khả năng giải thích (Explainability)", "Khó giải thích trực tiếp (ẩn danh người dùng khác)", "Rất trực quan: 'Vì bạn đã thích sản phẩm X'"],
@@ -390,24 +708,24 @@ def build_doc() -> None:
     add_heading_h3(doc, "c) Ví dụ minh họa tính tay trên ma trận 5 × 5")
     add_body(
         doc,
-        "Xét ma trận đánh giá thu nhỏ gồm 5 người dùng (U₁–U₅) và 5 bộ phim (M₁–M₅) với thang điểm 1–5 (dấu '–' là chưa đánh giá). Giả sử cần dự đoán điểm của U₁ cho phim M₅ bằng User-based KNN (k = 2, độ đo Pearson):",
+        "Xét ma trận đánh giá thu nhỏ gồm 5 người dùng (U_{1}–U_{5}) và 5 bộ phim (M_{1}–M_{5}) với thang điểm 1–5 (dấu '–' là chưa đánh giá). Giả sử cần dự đoán điểm của U_{1} cho phim M_{5} bằng User-based KNN (k = 2, độ đo Pearson):",
     )
     add_table(
         doc,
-        "Bảng 1.2. Ma trận đánh giá minh họa 5 × 5 cho bài toán dự đoán r(U₁, M₅)",
-        ["Người dùng \\ Phim", "M₁", "M₂", "M₃", "M₄", "M₅", "Trung bình r̄_u"],
+        "Bảng 1.2. Ma trận đánh giá minh họa 5 × 5 cho bài toán dự đoán {{r_U1M5}}",
+        ["Người dùng \\ Phim", "M_{1}", "M_{2}", "M_{3}", "M_{4}", "M_{5}", "Trung bình {{rbar_u}}"],
         [
-            ["U₁ (mục tiêu)", "5", "3", "4", "–", "?", "4.00"],
-            ["U₂", "5", "3", "4", "2", "5", "3.80"],
-            ["U₃", "1", "5", "2", "4", "2", "2.80"],
-            ["U₄", "4", "2", "3", "–", "4", "3.25"],
-            ["U₅", "2", "4", "1", "5", "1", "2.60"],
+            ["U_{1} (mục tiêu)", "5", "3", "4", "–", "?", "4.00"],
+            ["U_{2}", "5", "3", "4", "2", "5", "3.80"],
+            ["U_{3}", "1", "5", "2", "4", "2", "2.80"],
+            ["U_{4}", "4", "2", "3", "–", "4", "3.25"],
+            ["U_{5}", "2", "4", "1", "5", "1", "2.60"],
         ],
         [3.3, 1.5, 1.5, 1.5, 1.5, 1.5, 2.7],
     )
     add_body(
         doc,
-        "Trên tập phim cùng đánh giá {M₁, M₂, M₃}, U₁ có vector độ lệch so với trung bình là (+1, -1, 0). Tương tự, tính với U₂ (trên tập giao có độ lệch so với trung bình của U₂ là +1.2, -0.8, +0.2) cho giá trị sim_Pearson(U₁, U₂) ≈ +0.982, và với U₄ cho sim_Pearson(U₁, U₄) = +1.000; trong khi U₃ và U₅ có tương quan âm (≈ -0.945 và -0.866). Chọn k = 2 láng giềng có tương quan dương cao nhất là U₄ và U₂, áp dụng công thức (1.3): r̂(U₁, M₅) = 4.00 + [1.000×(4 - 3.25) + 0.982×(5 - 3.80)] / (1.000 + 0.982) ≈ 4.97. Kết quả hợp lý vì cả hai láng giềng cùng gu với U₁ đều đánh giá M₅ rất cao.",
+        "Trên tập phim cùng đánh giá {M_{1}, M_{2}, M_{3}}, U_{1} có vector độ lệch so với trung bình là (+1, −1, 0). Tương tự, tính với U_{2} (trên tập giao có độ lệch so với trung bình của U_{2} là +1.2, −0.8, +0.2) cho giá trị {{sim_Pearson_U1U2}} ≈ +0.982, và với U_{4} cho {{sim_Pearson_U1U4}} = +1.000; trong khi U_{3} và U_{5} có tương quan âm (≈ −0.945 và −0.866). Chọn k = 2 láng giềng có tương quan dương cao nhất là U_{4} và U_{2}, áp dụng công thức (1.3): {{rhat_U1M5}} = 4.00 + [1.000×(4 − 3.25) + 0.982×(5 − 3.80)] / (1.000 + 0.982) ≈ 4.97. Kết quả hợp lý vì cả hai láng giềng cùng gu với U_{1} đều đánh giá M_{5} rất cao.",
     )
 
     # --- 1.3.5 ---
@@ -421,7 +739,7 @@ def build_doc() -> None:
     add_heading_h3(doc, "a) Vấn đề khởi đầu nguội (Cold-Start Problem)")
     add_body(
         doc,
-        "Cold-start xảy ra khi hệ thống thiếu dữ liệu tương tác lịch sử để tính toán độ tương đồng cộng tác, bao gồm ba kịch bản: (1) Người dùng mới (New User) vừa đăng ký tài khoản và chưa có lượt đánh giá hay nhấp chuột nào; (2) Đối tượng mới (New Item) vừa được đưa lên sàn thương mại điện tử hoặc kho phim/tài liệu nên chưa có đủ người dùng tương tác; và (3) Hệ thống mới (New System) ở giai đoạn đầu vận hành [9]. Trong bài toán gợi ý hàng mới của đồ án, New Item là thách thức trọng tâm: nếu chỉ dùng Item-based CF thuần túy, một sản phẩm mới có 0 tương tác sẽ có vector cột toàn số 0, khiến sim_AdjCos(i, j) = 0 với mọi sản phẩm khác và không bao giờ xuất hiện trong danh sách Top-N.",
+        "Cold-start xảy ra khi hệ thống thiếu dữ liệu tương tác lịch sử để tính toán độ tương đồng cộng tác, bao gồm ba kịch bản: (1) Người dùng mới (New User) vừa đăng ký tài khoản và chưa có lượt đánh giá hay nhấp chuột nào; (2) Đối tượng mới (New Item) vừa được đưa lên sàn thương mại điện tử hoặc kho phim/tài liệu nên chưa có đủ người dùng tương tác; và (3) Hệ thống mới (New System) ở giai đoạn đầu vận hành [9]. Trong bài toán gợi ý hàng mới của đồ án, New Item là thách thức trọng tâm: nếu chỉ dùng Item-based CF thuần túy, một sản phẩm mới có 0 tương tác sẽ có vector cột toàn số 0, khiến {{sim_AdjCos_ij}} = 0 với mọi sản phẩm khác và không bao giờ xuất hiện trong danh sách Top-N.",
     )
     add_body(
         doc,
@@ -436,13 +754,13 @@ def build_doc() -> None:
     )
     add_body(
         doc,
-        "Hệ quả của độ thưa cao là tập giao I_{uv} hoặc U_{ij} giữa hai thực thể thường rỗng hoặc chỉ có 1–2 phần tử đồng đánh giá, làm độ tương đồng Pearson/Cosine bị nhiễu (ví dụ hai người cùng chấm 5 sao cho đúng 1 phim duy nhất sẽ cho tương đồng tuyệt đối 1.0 dù sở thích tổng thể khác biệt). Để giảm thiểu tác động này, đồ án kết hợp nhiều biện pháp: (i) lọc bỏ người dùng và đối tượng có ít hơn ngưỡng tương tác tối thiểu trong bước tiền xử lý; (ii) áp dụng hiệu chỉnh suy giảm theo số lượng phần tử chung (significance weighting) hoặc fallback về Content-based KNN khi tập giao CF bằng rỗng; và (iii) khai thác giảm chiều ma trận bằng TruncatedSVD đối với dữ liệu văn bản/phản hồi ngầm.",
+        "Hệ quả của độ thưa cao là tập giao {{I_uv}} hoặc {{U_ij}} giữa hai thực thể thường rỗng hoặc chỉ có 1–2 phần tử đồng đánh giá, làm độ tương đồng Pearson/Cosine bị nhiễu (ví dụ hai người cùng chấm 5 sao cho đúng 1 phim duy nhất sẽ cho tương đồng tuyệt đối 1.0 dù sở thích tổng thể khác biệt). Để giảm thiểu tác động này, đồ án kết hợp nhiều biện pháp: (i) lọc bỏ người dùng và đối tượng có ít hơn ngưỡng tương tác tối thiểu trong bước tiền xử lý; (ii) áp dụng hiệu chỉnh suy giảm theo số lượng phần tử chung (significance weighting) hoặc fallback về Content-based KNN khi tập giao CF bằng rỗng; và (iii) khai thác giảm chiều ma trận bằng TruncatedSVD đối với dữ liệu văn bản/phản hồi ngầm.",
     )
 
     add_heading_h3(doc, "c) Vấn đề khả năng mở rộng (Scalability)")
     add_body(
         doc,
-        "Thuật toán KNN thuộc nhóm học lười (lazy learning), không nén tri thức thành bộ trọng số gọn nhẹ mà lưu trữ toàn bộ ma trận tương tác để truy vấn láng giềng. Khi quy mô dữ liệu tăng tuyến tính, chi phí tính ma trận tương đồng toàn cặp tăng theo bậc hai: O(|U|²·|I|) đối với User-based KNN và O(|I|²·|U|) đối với Item-based KNN [8], [10]. Với một dịch vụ web qua giao thức HTTP/REST (như FastAPI trong đồ án), nếu mỗi truy vấn gợi ý phải quét lại toàn bộ hàng chục nghìn vector, độ trễ phản hồi (latency) sẽ vượt ngưỡng chấp nhận của người dùng (> 3 giây).",
+        "Thuật toán KNN thuộc nhóm học lười (lazy learning), không nén tri thức thành bộ trọng số gọn nhẹ mà lưu trữ toàn bộ ma trận tương tác để truy vấn láng giềng. Khi quy mô dữ liệu tăng tuyến tính, chi phí tính ma trận tương đồng toàn cặp tăng theo bậc hai: {{O_U2I}} đối với User-based KNN và {{O_I2U}} đối với Item-based KNN [8], [10]. Với một dịch vụ web qua giao thức HTTP/REST (như FastAPI trong đồ án), nếu mỗi truy vấn gợi ý phải quét lại toàn bộ hàng chục nghìn vector, độ trễ phản hồi (latency) sẽ vượt ngưỡng chấp nhận của người dùng (> 3 giây).",
     )
     add_body(
         doc,
@@ -460,10 +778,39 @@ def build_doc() -> None:
     add_heading_h3(doc, "a) Nhóm độ đo sai số dự đoán điểm: RMSE và MAE")
     add_body(
         doc,
-        "Đối với bài toán dự đoán giá trị rating r̂_{ui} trên tập kiểm thử T gồm các cặp (u, i) đã biết điểm thật r_{ui}, hai độ đo phổ biến nhất là Sai số tuyệt đối trung bình (Mean Absolute Error – MAE) và Căn bậc hai sai số bình phương trung bình (Root Mean Squared Error – RMSE) [11]:",
+        "Đối với bài toán dự đoán giá trị rating {{rhat_ui}} trên tập kiểm thử T gồm các cặp (u, i) đã biết điểm thật {{r_ui}}, hai độ đo phổ biến nhất là Sai số tuyệt đối trung bình (Mean Absolute Error – MAE) và Căn bậc hai sai số bình phương trung bình (Root Mean Squared Error – RMSE) [11]:",
     )
-    add_formula(doc, "MAE = (1 / |T|) · Σ_{(u,i) ∈ T} | r_{ui} − r̂_{ui} |", "(1.6)")
-    add_formula(doc, "RMSE = √[ (1 / |T|) · Σ_{(u,i) ∈ T} (r_{ui} − r̂_{ui})² ]", "(1.7)")
+
+    # Công thức (1.6): MAE
+    eq_1_6 = m_omath(
+        mr("MAE", plain=True),
+        mr(" = "),
+        m_frac(mr("1"), m_paren(mr("T"), "|", "|")),
+        mr(" · "),
+        m_sum(
+            mr("(u,i) ∈ T"),
+            m_paren([m_sub(mr("r"), mr("ui")), mr(" − "), m_sub(m_hat(mr("r")), mr("ui"))], "|", "|"),
+        ),
+    )
+    add_omml_equation(doc, eq_1_6, "(1.6)")
+
+    # Công thức (1.7): RMSE
+    eq_1_7 = m_omath(
+        mr("RMSE", plain=True),
+        mr(" = "),
+        m_sqrt(
+            [
+                m_frac(mr("1"), m_paren(mr("T"), "|", "|")),
+                mr(" · "),
+                m_sum(
+                    mr("(u,i) ∈ T"),
+                    m_sup(m_paren([m_sub(mr("r"), mr("ui")), mr(" − "), m_sub(m_hat(mr("r")), mr("ui"))]), mr("2")),
+                ),
+            ]
+        ),
+    )
+    add_omml_equation(doc, eq_1_7, "(1.7)")
+
     add_body(
         doc,
         "Cả MAE và RMSE càng nhỏ thì mô hình dự đoán càng chính xác. Tuy nhiên, do bình phương phần dư trước khi lấy trung bình, RMSE phạt nặng hơn đáng kể đối với các sai số dự đoán lớn (outliers). Vì vậy, RMSE đặc biệt hữu ích khi hệ thống cần tránh những dự đoán lệch cực đoan (ví dụ dự đoán 5 sao cho một bộ phim người dùng chấm 1 sao).",
@@ -472,19 +819,59 @@ def build_doc() -> None:
     add_heading_h3(doc, "b) Nhóm độ đo chất lượng xếp hạng Top-K: Precision@K, Recall@K và NDCG@K")
     add_body(
         doc,
-        "Trong thực tế ứng dụng web, người dùng hiếm khi quan tâm điểm dự đoán chính xác đến phần thập phân mà chỉ xem danh sách Top-K gợi ý hàng đầu (thường K = 5 hoặc K = 10). Gọi R_K(u) là danh sách K đối tượng được hệ thống gợi ý cho người dùng u, và Rel(u) là tập các đối tượng thực sự phù hợp (ví dụ có điểm đánh giá ≥ 3.5 hoặc có hành vi tải/mua trong tập kiểm thử) [12]:",
+        "Trong thực tế ứng dụng web, người dùng hiếm khi quan tâm điểm dự đoán chính xác đến phần thập phân mà chỉ xem danh sách Top-K gợi ý hàng đầu (thường K = 5 hoặc K = 10). Gọi {{R_K_u}} là danh sách K đối tượng được hệ thống gợi ý cho người dùng u, và {{Rel_u}} là tập các đối tượng thực sự phù hợp (ví dụ có điểm đánh giá ≥ 3.5 hoặc có hành vi tải/mua trong tập kiểm thử) [12]:",
     )
-    add_formula(doc, "Precision@K(u) = | R_K(u) ∩ Rel(u) | / K", "(1.8)")
-    add_formula(doc, "Recall@K(u) = | R_K(u) ∩ Rel(u) | / | Rel(u) |", "(1.9)")
+
+    # Công thức (1.8): Precision@K
+    eq_1_8 = m_omath(
+        mr("Precision@K", plain=True),
+        m_paren(mr("u")),
+        mr(" = "),
+        m_frac(
+            m_paren([m_sub(mr("R"), mr("K")), m_paren(mr("u")), mr(" ∩ "), mr("Rel", plain=True), m_paren(mr("u"))], "|", "|"),
+            mr("K"),
+        ),
+    )
+    add_omml_equation(doc, eq_1_8, "(1.8)")
+
+    # Công thức (1.9): Recall@K
+    eq_1_9 = m_omath(
+        mr("Recall@K", plain=True),
+        m_paren(mr("u")),
+        mr(" = "),
+        m_frac(
+            m_paren([m_sub(mr("R"), mr("K")), m_paren(mr("u")), mr(" ∩ "), mr("Rel", plain=True), m_paren(mr("u"))], "|", "|"),
+            m_paren([mr("Rel", plain=True), m_paren(mr("u"))], "|", "|"),
+        ),
+    )
+    add_omml_equation(doc, eq_1_9, "(1.9)")
+
     add_body(
         doc,
         "Precision@K đo tỷ lệ gợi ý đúng trong K kết quả đầu tiên, còn Recall@K đo tỷ lệ đối tượng phù hợp được tìm thấy trên tổng số đối tượng người dùng thực sự thích. Tuy nhiên, cả hai độ đo này đều coi vị trí thứ 1 và vị trí thứ K quan trọng ngang nhau. Để phản ánh đúng trải nghiệm người dùng (luôn chú ý các kết quả đầu danh sách hơn), độ đo Normalized Discounted Cumulative Gain (NDCG@K) được sử dụng bằng cách giảm trọng số theo logarit của thứ hạng p (1 ≤ p ≤ K) [12]:",
     )
-    add_formula(doc, "DCG@K(u) = Σ_{p=1}^{K}  rel_p / log₂(p + 1) ,    NDCG@K(u) = DCG@K(u) / IDCG@K(u)", "(1.10)",
+
+    # Công thức (1.10): DCG@K và NDCG@K
+    eq_1_10 = m_omath(
+        mr("DCG@K", plain=True),
+        m_paren(mr("u")),
+        mr(" = "),
+        m_sum(
+            mr("p=1"),
+            m_frac(m_sub(mr("rel", plain=True), mr("p")), [m_sub(mr("log", plain=True), mr("2")), m_paren(mr("p + 1"))]),
+            sup=mr("K"),
+        ),
+        mr(" ,    "),
+        mr("NDCG@K", plain=True),
+        m_paren(mr("u")),
+        mr(" = "),
+        m_frac([mr("DCG@K", plain=True), m_paren(mr("u"))], [mr("IDCG@K", plain=True), m_paren(mr("u"))]),
     )
+    add_omml_equation(doc, eq_1_10, "(1.10)")
+
     add_body(
         doc,
-        "trong đó rel_p ∈ {0, 1} (hoặc độ liên quan có cấp bậc) là mức phù hợp của đối tượng tại vị trí xếp hạng thứ p, còn IDCG@K là giá trị DCG lớn nhất có thể đạt được khi sắp xếp lý tưởng các đối tượng phù hợp lên đầu danh sách. Giá trị NDCG@K nằm trong đoạn [0, 1], đạt 1.0 khi thứ tự gợi ý hoàn hảo.",
+        "trong đó {{rel_p}} ∈ {0, 1} (hoặc độ liên quan có cấp bậc) là mức phù hợp của đối tượng tại vị trí xếp hạng thứ p, còn {{IDCG_K}}(u) là giá trị DCG lớn nhất có thể đạt được khi sắp xếp lý tưởng các đối tượng phù hợp lên đầu danh sách. Giá trị {{NDCG_K}}(u) nằm trong đoạn [0, 1], đạt 1.0 khi thứ tự gợi ý hoàn hảo.",
     )
 
     add_heading_h3(doc, "c) Nhóm độ đo bao phủ và hiệu năng hệ thống: Coverage, Diversity và Latency")
@@ -510,7 +897,11 @@ def build_doc() -> None:
     # =========================================================================
     # PHẦN B: BÁO CÁO KỸ THUẬT TUẦN 1–3 CỦA HÙNG
     # =========================================================================
-    add_major_title(doc, "PHỤ LỤC KỸ THUẬT: KẾT QUẢ TRIỂN KHAI CỦA HÙNG\n(DỮ LIỆU, LƯỢC ĐỒ CSDL & MODULE HÀNG MỚI TUẦN 1–3)", page_break_before=True)
+    add_major_title(
+        doc,
+        "PHỤ LỤC KỸ THUẬT: KẾT QUẢ TRIỂN KHAI CỦA HÙNG\n(DỮ LIỆU, LƯỢC ĐỒ CSDL & MODULE HÀNG MỚI TUẦN 1–3)",
+        page_break_before=True,
+    )
 
     add_heading_h2(doc, "B.1. Mô tả, thu thập và làm sạch 3 bộ dữ liệu (Tuần 1–2)")
     add_body(
@@ -554,7 +945,7 @@ def build_doc() -> None:
     add_heading_h2(doc, "B.2. Thiết kế lược đồ cơ sở dữ liệu SQLite (Tuần 2)")
     add_body(
         doc,
-        "Lược đồ CSDL được thiết kế chuẩn hóa tại tệp docs/schema.sql (đã kiểm thử thực thi thành công trên SQLite), gồm 8 bảng với đầy đủ khóa chính (PRIMARY KEY), khóa ngoại (FOREIGN KEY ... ON DELETE CASCADE), ràng buộc miền giá trị (CHECK) và 8 chỉ mục (INDEX) tối ưu truy vấn cho module db.py và FastAPI của Hoàng ở Tuần 4.",
+        "Lược đồ CSDL được thiết kế chuẩn hóa tại tệp docs/schema.sql (đã kiểm thử thực thi thành công trên SQLite), gồm 8 bảng với đầy đủ khóa chính (PRIMARY KEY), khóa ngoại (FOREIGN KEY … ON DELETE CASCADE), ràng buộc miền giá trị (CHECK) và 8 chỉ mục (INDEX) tối ưu truy vấn cho module db.py và FastAPI của Hoàng ở Tuần 4.",
     )
 
     add_table(
@@ -601,7 +992,7 @@ def build_doc() -> None:
 
     add_body(
         doc,
-        "Toàn bộ 4 kịch bản kiểm thử đơn vị trong tests/test_hung_modules.py (kiểm chứng tính tay RMSE/MAE, Precision@K/Recall@K/NDCG@K, thực thi schema SQLite và kiểm tra Top-10 cold-start) đều chạy đạt 100% (Ran 4 tests in 0.137s — OK).",
+        "Toàn bộ 4 kịch bản kiểm thử đơn vị trong tests/test_hung_modules.py (kiểm chứng tính tay RMSE/MAE, Precision@K/Recall@K/NDCG@K, thực thi schema SQLite và kiểm tra Top-10 cold-start) đều chạy đạt 100% (Ran 4 tests in 0.160s — OK).",
     )
 
     # =========================================================================
@@ -644,4 +1035,3 @@ def build_doc() -> None:
 
 if __name__ == "__main__":
     build_doc()
-
