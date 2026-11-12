@@ -1,0 +1,58 @@
+{
+  "generated_at": "2026-11-12T21:00:20",
+  "movielens": {
+    "dataset": "MovieLens ml-latest-small",
+    "n_users": 610,
+    "n_items_total": 9742,
+    "n_items_rated": 9724,
+    "n_ratings": 100836,
+    "n_tags": 3683,
+    "rating_min": 0.5,
+    "rating_max": 5.0,
+    "rating_mean": 3.5016,
+    "rating_std": 1.0425,
+    "sparsity_rated_pct": 98.3,
+    "sparsity_total_pct": 98.3032,
+    "avg_ratings_per_user": 165.3,
+    "min_ratings_per_user": 20,
+    "avg_ratings_per_item": 10.37,
+    "rating_distribution": {
+      "0.5": 1370,
+      "1.0": 2811,
+      "1.5": 1791,
+      "2.0": 7551,
+      "2.5": 5550,
+      "3.0": 20047,
+      "3.5": 13136,
+      "4.0": 26818,
+      "4.5": 8551,
+      "5.0": 13211
+    }
+  },
+  "products": {
+    "dataset": "Products (Zipf Simulated + Cleaned)",
+    "raw_product_rows": 508,
+    "clean_product_rows": 500,
+    "cold_start_new_items": 60,
+    "zero_interaction_items": 41,
+    "raw_interaction_rows": 10507,
+    "clean_interaction_rows": 10477,
+    "n_users": 400,
+    "sparsity_pct": 94.7615,
+    "rating_mean": 3.6554
+  },
+  "documents": {
+    "dataset": "Documents (Zipf Implicit Feedback + Cleaned)",
+    "raw_doc_rows": 406,
+    "clean_doc_rows": 400,
+    "raw_interaction_rows": 7471,
+    "clean_interaction_rows": 7456,
+    "n_users": 350,
+    "sparsity_pct": 94.6743,
+    "action_distribution": {
+      "download": 3016,
+      "view": 2702,
+      "bookmark": 1738
+    }
+  }
+}
