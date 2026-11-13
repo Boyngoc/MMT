@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Gợi Ý Đa Nhiệm - K-Nearest Neighbors (KNN)</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <!-- Header & Navigation -->
+    <header class="app-header">
+        <div class="header-container">
+            <div class="logo-area">
+                <div class="logo-icon">✨</div>
+                <div>
+                    <h1 class="logo-title">KNN Recommender System</h1>
+                    <p class="logo-subtitle">Đồ án môn Mạng máy tính · Nhóm Hoàng - Linh - Hùng</p>
+                </div>
+            </div>
+
+            <!-- Backend Connection Status -->
+            <div class="status-badge" id="backendStatusBadge">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">Đang kiểm tra kết nối API...</span>
+            </div>
+        </div>
+
+        <!-- Tab Switching Navigation -->
+        <nav class="tabs-nav">
+            <button class="tab-btn active" data-tab="movie">
+                <span class="tab-icon">🎬</span>
+                <span class="tab-text">Gợi ý Phim (MovieLens CF)</span>
+            </button>
+            <button class="tab-btn" data-tab="document">
+                <span class="tab-icon">📄</span>
+                <span class="tab-text">Gợi ý Tài liệu (TF-IDF & Cosine)</span>
+            </button>
+            <button class="tab-btn" data-tab="newitem">
+                <span class="tab-icon">🛍️</span>
+                <span class="tab-text">Gợi ý Hàng mới (Cold-Start Hybrid)</span>
+            </button>
+        </nav>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="main-container">
+
+        <!-- Control Bar -->
+        <section class="control-panel">
+            <div class="control-row">
+                <!-- User Selector -->
+                <div class="control-group">
+                    <label for="userSelect" id="userSelectLabel">Chọn Người dùng:</label>
+                    <div class="select-wrapper">
+                        <select id="userSelect" class="custom-select">
+                            <!-- Populated dynamically by JS -->
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Top-N Control -->
+                <div class="control-group">
+                    <label for="topNSlider">Số kết quả Top-N: <span id="topNValue" class="badge-value">6</span></label>
+                    <input type="range" id="topNSlider" min="2" max="12" value="6" step="1" class="custom-range">
+                </div>
+
+                <!-- Metric / Method Selector -->
+                <div class="control-group">
+                    <label for="metricSelect">Phương pháp / Độ đo:</label>
+                    <div class="select-wrapper">
+                        <select id="metricSelect" class="custom-select">
+                            <option value="item_based">Item-based KNN (Adjusted Cosine)</option>
+                            <option value="user_based">User-based KNN (Pearson Correlation)</option>
+                            <option value="tfidf_cosine">TF-IDF + Cosine Similarity</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Action Button -->
+                <div class="control-group action-group">
+                    <button id="btnFetchRecs" class="btn-primary">
+                        <span class="btn-icon">⚡</span>
+                        <span>Lấy Gợi Ý Ngay</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Profile / Current History Info -->
+            <div class="user-context-banner" id="userContextBanner">
+                <!-- Filled dynamically -->
+            </div>
+        </section>
+
+        <!-- Notification Banner -->
+        <div id="noticeBanner" class="notice-banner hidden"></div>
+
+        <!-- Section Header -->
+        <div class="section-title-bar">
+            <div>
+                <h2 id="sectionTitle" class="section-title">Danh sách Phim gợi ý cho bạn</h2>
+                <p id="sectionDesc" class="section-desc">Dự đoán điểm yêu thích dựa trên lịch sử đánh giá của những người xem có gu tương tự.</p>
+            </div>
+            <div class="results-count" id="resultsCount">Đang hiển thị 0 mục</div>
+        </div>
+
+        <!-- Loading Spinner -->
+        <div id="loadingSpinner" class="spinner-container hidden">
+            <div class="spinner"></div>
+            <p>Đang tính toán ma trận tương đồng KNN...</p>
+        </div>
+
+        <!-- Recommendations Grid -->
+        <div class="cards-grid" id="recommendationsGrid">
+            <!-- Cards will be injected by JavaScript -->
+        </div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="empty-state hidden">
+            <div class="empty-icon">🔍</div>
+            <h3>Không tìm thấy dữ liệu gợi ý</h3>
+            <p>Vui lòng thử chọn người dùng khác hoặc điều chỉnh các tham số lọc.</p>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <div class="footer-container">
+            <p>© 2026 Nhóm Đồ án MMT · <strong>Linh</strong> (Client & Tiền xử lý) · <strong>Hoàng</strong> (Nhân KNN & Server) · <strong>Hùng</strong> (Đánh giá & Dữ liệu)</p>
+            <p class="footer-sub">Thiết kế theo chuẩn giải thích được (Explainable AI) · Thuật toán K-Nearest Neighbors</p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
+
